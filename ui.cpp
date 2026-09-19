@@ -662,8 +662,23 @@ void drawBottomHint(const char* text)
 // ============================================================
 // TODO
 // ============================================================
+void reloadTodoData()
+{
+    for (int i = 0; i < 3; i++)
+    {
+        todoCompleted[i] = loadTodoState(i);
+
+        loadTodoName(
+            i,
+            todoNames[i],
+            sizeof(todoNames[i])
+        );
+    }
+}
 void drawTodo()
 {
+        reloadTodoData();
+
     drawFeatureHeader("TODO");
 
  if (strlen(todoNames[0]) == 0)
@@ -1000,10 +1015,24 @@ void handleFocusInput(ButtonEvent event)
         drawCurrentScreen();
     }
 }
+void reloadHabitData()
+{
+    for (int i = 0; i < 3; i++)
+    {
+        habitCompleted[i] = loadHabitState(i);
 
+        loadHabitName(
+            i,
+            habitNames[i],
+            sizeof(habitNames[i])
+        );
+    }
+}
 
 void drawHabits()
 {
+        reloadHabitData();
+
     drawFeatureHeader("HABITS");
 
     // Habit 1
@@ -1263,6 +1292,8 @@ else if (event == BTN_OK_PRESSED)
 // ============================================================
 void drawProgress()
 {
+     reloadTodoData();
+    reloadHabitData();
     drawFeatureHeader("PROGRESS");
 
     // -------------------------

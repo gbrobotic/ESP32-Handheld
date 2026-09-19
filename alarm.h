@@ -16,3 +16,4 @@ void setAlarmMinute(int index, int minute);
 // Buzzer / ringing control
 bool isAlarmRinging();
 void stopAlarm();
+int getAlarmCount();

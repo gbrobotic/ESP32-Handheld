@@ -1,8 +1,12 @@
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 let base=localStorage.getItem("esp32Base")||location.origin;
-let todos=[],habits=[],alarms=JSON.parse(localStorage.getItem("localAlarms")||"[]");
-let timerSeconds=1500,timerRunning=false;
-let focusDurationSeconds=1500;
+let todos = [];
+let habits = [];
+let alarms = [];
+
+let timerSeconds = 1500;
+let timerRunning = false;
+let focusDurationSeconds = 1500;
 function toast(t){const e=$("#toast");e.textContent=t;e.classList.add("show");setTimeout(()=>e.classList.remove("show"),1800)}
 function api(path,opts={}){return fetch(base+path,{...opts}).then(r=>{if(!r.ok)throw Error("HTTP "+r.status);return r.json()})}
 function enc(s){return encodeURIComponent(s)}
@@ -19,9 +23,33 @@ async function loadStatus(){
 async function loadData(){
  try{todos=(await api("/api/todos")).todos||[]}catch(e){todos=[]}
  try{habits=(await api("/api/habits")).habits||[]}catch(e){habits=[]}
+
  renderAll()
 }
-async function loadAll(){const ok=await loadStatus();await loadData();if(ok)toast("Synced with ESP32")}
+async function loadAlarms(){
+    try{
+        const data = await api("/api/alarms");
+
+        alarms = data.alarms || [];
+
+        renderAlarms();
+
+    }catch(e){
+        console.error("Alarm sync error:", e);
+    }
+}
+async function loadAll(){
+
+    const ok = await loadStatus();
+
+    await loadData();
+
+    if(ok){
+        await loadAlarms();
+        toast("Synced with ESP32");
+    }
+}
+
 function renderAll(){renderTodos();renderHabits();renderDashboard();renderProgress()}
 function row(item,type,index){const done=!!item.completed;return `<div class="item"><button class="check ${done?"done":""}" onclick="toggleItem('${type}',${index},${!done})">${done?"✓":""}</button><div class="item-main"><div class="item-title ${done?"done-text":""}">${escapeHtml(item.name||"Empty")}</div></div><div class="row-actions"><button class="tiny" onclick="renameItem('${type}',${index})">Edit</button><button class="tiny" onclick="deleteItem('${type}',${index})">Delete</button></div></div>`}
 function renderTodos(){const html=todos.filter(x=>x.name).map((x,i)=>row(x,"todo",i)).join("")||empty("No tasks yet.");$("#todoList").innerHTML=html}
@@ -166,14 +194,229 @@ $$(".preset-row button").forEach(b=>{
 });
 
 setInterval(loadFocus,1000);
-function renderAlarms(){if(!alarms.length){$("#alarmList").innerHTML=empty("No alarms yet.");return}$("#alarmList").innerHTML=alarms.map((a,i)=>`<div class="item"><div class="item-main"><div class="item-title">${a.time}</div><div class="item-meta">${a.enabled?"Enabled":"Disabled"}</div></div><button class="secondary" onclick="toggleAlarm(${i})">${a.enabled?"ON":"OFF"}</button><button class="tiny" onclick="deleteAlarm(${i})">Delete</button></div>`).join("")}
-$("#addAlarm").onclick=()=>{let time=prompt("Alarm time (HH:MM)","08:00");if(!time)return;alarms.push({time,enabled:true});localStorage.setItem("localAlarms",JSON.stringify(alarms));renderAlarms()};
-function toggleAlarm(i){alarms[i].enabled=!alarms[i].enabled;localStorage.setItem("localAlarms",JSON.stringify(alarms));renderAlarms()}
-function deleteAlarm(i){alarms.splice(i,1);localStorage.setItem("localAlarms",JSON.stringify(alarms));renderAlarms()}
+function renderAlarms(){
+
+    if(!alarms.length){
+        $("#alarmList").innerHTML = empty("No alarms available.");
+        return;
+    }
+
+    $("#alarmList").innerHTML = alarms.map(a => {
+
+        const time =
+            String(a.hour).padStart(2,"0") +
+            ":" +
+            String(a.minute).padStart(2,"0");
+
+        return `
+            <div class="item">
+
+                <div class="item-main">
+
+                    <div class="item-title">
+                        Alarm ${a.index + 1} · ${time}
+                    </div>
+
+                    <div class="item-meta">
+                        ${a.enabled ? "Enabled" : "Disabled"}
+                    </div>
+
+                </div>
+
+                <button
+                    class="secondary"
+                    onclick="toggleAlarm(${a.index})">
+                    ${a.enabled ? "ON" : "OFF"}
+                </button>
+
+                <button
+                    class="tiny"
+                    onclick="editAlarm(${a.index})">
+                    Edit
+                </button>
+
+            </div>
+        `;
+
+    }).join("");
+}
+$("#addAlarm").onclick = async () => {
+
+    // Find the first unused alarm slot
+    const alarm = alarms.find(a => !a.enabled);
+
+    if(!alarm){
+        toast("All 3 alarm slots are in use");
+        return;
+    }
+
+    const value = prompt(
+        `Alarm ${alarm.index + 1} time (HH:MM)`,
+        "08:00"
+    );
+
+    if(!value)
+        return;
+
+    const parts = value.split(":");
+
+    if(parts.length !== 2){
+        toast("Use HH:MM format");
+        return;
+    }
+
+    const hour = Number(parts[0]);
+    const minute = Number(parts[1]);
+
+    if(
+        !Number.isInteger(hour) ||
+        !Number.isInteger(minute) ||
+        hour < 0 ||
+        hour > 23 ||
+        minute < 0 ||
+        minute > 59
+    ){
+        toast("Invalid time");
+        return;
+    }
+
+    try{
+
+        const data = await api("/api/alarm",{
+            method:"POST",
+            headers:{
+                "Content-Type":"application/x-www-form-urlencoded"
+            },
+            body:
+                `index=${alarm.index}` +
+                `&hour=${hour}` +
+                `&minute=${minute}` +
+                `&enabled=true`
+        });
+
+        alarms = data.alarms || alarms;
+
+        renderAlarms();
+
+        toast("Alarm added");
+
+    }catch(e){
+
+        toast("Could not reach ESP32");
+
+    }
+};
+
+async function editAlarm(index){
+
+    const alarm = alarms.find(a => a.index === index);
+
+    if(!alarm)
+        return;
+
+    const current =
+        String(alarm.hour).padStart(2,"0") +
+        ":" +
+        String(alarm.minute).padStart(2,"0");
+
+    const value = prompt(
+        `Alarm ${index + 1} time (HH:MM)`,
+        current
+    );
+
+    if(!value)
+        return;
+
+    const parts = value.split(":");
+
+    if(parts.length !== 2){
+        toast("Use HH:MM format");
+        return;
+    }
+
+    const hour = Number(parts[0]);
+    const minute = Number(parts[1]);
+
+    if(
+        !Number.isInteger(hour) ||
+        !Number.isInteger(minute) ||
+        hour < 0 ||
+        hour > 23 ||
+        minute < 0 ||
+        minute > 59
+    ){
+        toast("Invalid time");
+        return;
+    }
+
+    try{
+
+        const data = await api("/api/alarm",{
+            method:"POST",
+            headers:{
+                "Content-Type":"application/x-www-form-urlencoded"
+            },
+            body:
+                `index=${index}` +
+                `&hour=${hour}` +
+                `&minute=${minute}`
+        });
+
+        alarms = data.alarms || alarms;
+
+        renderAlarms();
+
+        toast("Alarm updated");
+
+    }catch(e){
+
+        toast("Could not reach ESP32");
+
+    }
+}
+
+async function toggleAlarm(index){
+
+    const alarm = alarms.find(a => a.index === index);
+
+    if(!alarm)
+        return;
+
+    const enabled = !alarm.enabled;
+
+    try{
+
+        const data = await api("/api/alarm",{
+            method:"POST",
+            headers:{
+                "Content-Type":"application/x-www-form-urlencoded"
+            },
+            body:
+                `index=${index}` +
+                `&enabled=${enabled}`
+        });
+
+        alarms = data.alarms || alarms;
+
+        renderAlarms();
+
+        toast(
+            enabled
+                ? "Alarm enabled"
+                : "Alarm disabled"
+        );
+
+    }catch(e){
+
+        toast("Could not reach ESP32");
+
+    }
+}
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]))}
 setInterval(loadStatus,5000);
 setInterval(loadData,10000);
+setInterval(loadAlarms,5000);
 
 loadFocus();
-renderAlarms();
+loadAlarms();
 loadAll();

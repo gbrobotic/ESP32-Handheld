@@ -6,6 +6,7 @@
 #include "clock.h"
 #include "data_storage.h"
 #include "ui.h"
+#include "alarm.h"
 WebServer server(80);
 
 void handleRoot()
@@ -135,7 +136,99 @@ void handleFocusPreset()
     handleFocus();
 }
 
+void handleAlarms()
+{
+    String json = "{";
+    json += "\"alarms\":[";
 
+    for (int i = 0; i < 3; i++)
+    {
+        json += "{";
+
+        json += "\"index\":";
+        json += String(i);
+        json += ",";
+
+        json += "\"hour\":";
+        json += String(getAlarmHour(i));
+        json += ",";
+
+        json += "\"minute\":";
+        json += String(getAlarmMinute(i));
+        json += ",";
+
+        json += "\"enabled\":";
+        json += isAlarmEnabled(i) ? "true" : "false";
+
+        json += "}";
+
+        if (i < 2)
+            json += ",";
+    }
+
+    json += "]}";
+
+    server.send(
+        200,
+        "application/json",
+        json
+    );
+}
+
+void handleAlarmUpdate()
+{
+    if (!server.hasArg("index"))
+    {
+        server.send(
+            400,
+            "application/json",
+            "{\"error\":\"Missing index\"}"
+        );
+
+        return;
+    }
+
+    int index = server.arg("index").toInt();
+
+    if (index < 0 || index >= 3)
+    {
+        server.send(
+            400,
+            "application/json",
+            "{\"error\":\"Invalid alarm index\"}"
+        );
+
+        return;
+    }
+
+    if (server.hasArg("hour"))
+    {
+        int hour = server.arg("hour").toInt();
+        setAlarmHour(index, hour);
+    }
+
+    if (server.hasArg("minute"))
+    {
+        int minute = server.arg("minute").toInt();
+        setAlarmMinute(index, minute);
+    }
+
+    if (server.hasArg("enabled"))
+    {
+        String value = server.arg("enabled");
+
+        bool enabled =
+            (value == "true" || value == "1");
+
+        setAlarmEnabled(index, enabled);
+    }
+
+    // Update the physical LCD immediately
+    drawCurrentScreen();
+
+    // Send updated alarm data back to the browser
+    handleAlarms();
+}
 void handleTodos()
 {
     String json = "{";
@@ -222,7 +315,7 @@ void handleTodoUpdate()
         index,
         completed
     );
-
+drawCurrentScreen();
     Serial.print("Todo ");
     Serial.print(index);
     Serial.print(" updated: ");
@@ -302,7 +395,7 @@ void handleTodoEdit()
         index,
         name.c_str()
     );
-
+drawCurrentScreen();
     Serial.print("Todo ");
     Serial.print(index);
     Serial.print(" renamed to: ");
@@ -398,7 +491,7 @@ void handleTodoCreate()
         freeIndex,
         false
     );
-
+drawCurrentScreen();
     Serial.print("Created Todo ");
     Serial.print(freeIndex);
     Serial.print(": ");
@@ -469,7 +562,7 @@ void handleTodoDelete()
     }
 
     deleteTodo(index);
-
+drawCurrentScreen();
     Serial.print("Deleted Todo ");
     Serial.println(index);
 
@@ -505,6 +598,9 @@ void handleFocusStart();
 void handleFocusPause();
 void handleFocusReset();
 void handleFocusPreset();
+void handleAlarms();
+void handleAlarmUpdate();
+
 void serverInit()
 {
 
@@ -561,6 +657,18 @@ server.on(
     "/api/focus/preset",
     HTTP_POST,
     handleFocusPreset
+);
+
+server.on(
+    "/api/alarms",
+    HTTP_GET,
+    handleAlarms
+);
+
+server.on(
+    "/api/alarm",
+    HTTP_POST,
+    handleAlarmUpdate
 );
 
 server.on(
@@ -777,7 +885,7 @@ void handleHabitUpdate()
         index,
         completed
     );
-
+drawCurrentScreen();
     String json = "{";
 
     json += "\"success\":true,";
@@ -842,7 +950,7 @@ void handleHabitEdit()
         index,
         name.c_str()
     );
-
+drawCurrentScreen();
     server.send(
         200,
         "application/json",
@@ -910,7 +1018,7 @@ void handleHabitCreate()
         freeIndex,
         false
     );
-
+drawCurrentScreen();
     String json = "{";
 
     json += "\"success\":true,";
@@ -969,7 +1077,7 @@ void handleHabitDelete()
     }
 
     deleteHabit(index);
-
+drawCurrentScreen();
     server.send(
         200,
         "application/json",
