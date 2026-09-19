@@ -14,6 +14,11 @@ void handleAlarmInput(ButtonEvent event);
 void drawAlarmRinging();
 void handleClockInput(ButtonEvent event);
 void handleTodoInput(ButtonEvent event);
+void focusStartFromWeb();
+void focusPauseFromWeb();
+void focusResetFromWeb();
+unsigned long getFocusRemainingSeconds();
+bool isFocusRunningFromWeb();
 void drawHabitRow(
     const char* name,
     int y,
@@ -60,8 +65,7 @@ bool focusRunning = false;
 unsigned long focusStartTime = 0;
 unsigned long focusPausedTime = 0;
 int lastFocusSecond = -1;
-const unsigned long FOCUS_DURATION = 25UL * 60UL * 1000UL;
-
+unsigned long focusDuration = 25UL * 60UL * 1000UL;
 
 const char* menuItems[] =
 {
@@ -852,10 +856,11 @@ void drawFocus()
         elapsed = millis() - focusStartTime;
     }
 
-    if (elapsed > FOCUS_DURATION)
-        elapsed = FOCUS_DURATION;
+    if (elapsed > focusDuration)
+    elapsed = focusDuration;
 
-    unsigned long remaining = FOCUS_DURATION - elapsed;
+unsigned long remaining = focusDuration - elapsed;
+
 
     int minutes = remaining / 60000;
     int seconds = (remaining % 60000) / 1000;
@@ -894,7 +899,7 @@ void drawFocus()
 
     // PROGRESS
     int progressWidth =
-        (168UL * elapsed) / FOCUS_DURATION;
+    (168UL * elapsed) / focusDuration;
 
     lcd.fillRoundRect(
         36,
@@ -918,14 +923,16 @@ void drawFocus()
     }
 
     // SESSION INFO
-    char sessionText[20];
+   char sessionText[24];
 
-    sprintf(
-        sessionText,
-        "%lu:%02lu / 25:00",
-        elapsed / 60000,
-        (elapsed % 60000) / 1000
-    );
+sprintf(
+    sessionText,
+    "%lu:%02lu / %lu:%02lu",
+    elapsed / 60000,
+    (elapsed % 60000) / 1000,
+    focusDuration / 60000,
+    (focusDuration % 60000) / 1000
+);
 
 lcd.setFont(&fonts::Font4);
 lcd.setTextSize(1);
@@ -1842,10 +1849,11 @@ void updateFocusDisplay()
         elapsed = millis() - focusStartTime;
     }
 
-    if (elapsed > FOCUS_DURATION)
-        elapsed = FOCUS_DURATION;
+   if (elapsed > focusDuration)
+    elapsed = focusDuration;
 
-    unsigned long remaining = FOCUS_DURATION - elapsed;
+unsigned long remaining = focusDuration - elapsed;
+
 
     int minutes = remaining / 60000;
     int seconds = (remaining % 60000) / 1000;
@@ -1888,7 +1896,7 @@ void updateFocusDisplay()
     // -------------------------
 
     int progressWidth =
-        (168UL * elapsed) / FOCUS_DURATION;
+    (168UL * elapsed) / focusDuration;
 
     lcd.fillRoundRect(
         36,
@@ -1915,14 +1923,16 @@ void updateFocusDisplay()
     // SESSION TIME
     // -------------------------
 
-    char sessionText[20];
+   char sessionText[24];
 
-    sprintf(
-        sessionText,
-        "%lu:%02lu / 25:00",
-        elapsed / 60000,
-        (elapsed % 60000) / 1000
-    );
+sprintf(
+    sessionText,
+    "%lu:%02lu / %lu:%02lu",
+    elapsed / 60000,
+    (elapsed % 60000) / 1000,
+    focusDuration / 60000,
+    (focusDuration % 60000) / 1000
+);
 
     lcd.fillRect(
         55,
@@ -2128,4 +2138,102 @@ void handleAlarmInput(ButtonEvent event)
             drawCurrentScreen();
         }
     }
+}
+
+
+// ============================================================
+// WEB FOCUS CONTROL
+// ============================================================
+
+void focusStartFromWeb()
+{
+    if (focusRunning)
+        return;
+
+    focusStartTime =
+        millis() - focusPausedTime;
+
+    focusRunning = true;
+    lastFocusSecond = -1;
+
+    if (currentScreen == SCREEN_FOCUS)
+    {
+        drawCurrentScreen();
+    }
+}
+
+void focusPauseFromWeb()
+{
+    if (!focusRunning)
+        return;
+
+    focusPausedTime =
+        millis() - focusStartTime;
+
+    focusRunning = false;
+
+    if (currentScreen == SCREEN_FOCUS)
+    {
+        drawCurrentScreen();
+    }
+}
+
+void focusResetFromWeb()
+{
+    focusRunning = false;
+    focusStartTime = 0;
+    focusPausedTime = 0;
+    lastFocusSecond = -1;
+
+    if (currentScreen == SCREEN_FOCUS)
+    {
+        drawCurrentScreen();
+    }
+}
+
+unsigned long getFocusRemainingSeconds()
+{
+    unsigned long elapsed = focusPausedTime;
+
+    if (focusRunning)
+    {
+        elapsed = millis() - focusStartTime;
+    }
+
+if (elapsed >= focusDuration)
+    return 0;
+
+return (focusDuration - elapsed) / 1000;
+}
+
+bool isFocusRunningFromWeb()
+{
+    return focusRunning;
+}
+
+
+void focusSetPreset(unsigned long minutes)
+{
+    if (minutes == 0)
+        return;
+
+    // Stop current session
+    focusRunning = false;
+    focusStartTime = 0;
+    focusPausedTime = 0;
+    lastFocusSecond = -1;
+
+    // Set new duration
+    focusDuration = minutes * 60UL * 1000UL;
+
+    // Refresh Focus screen if currently open
+    if (currentScreen == SCREEN_FOCUS)
+    {
+        drawCurrentScreen();
+    }
+}
+
+unsigned long getFocusDurationSeconds()
+{
+    return focusDuration / 1000UL;
 }

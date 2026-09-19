@@ -1,55 +1,34 @@
 #include "server.h"
 #include <Arduino.h>
 #include <WebServer.h>
+#include <LittleFS.h>
 #include "wifi.h"
 #include "clock.h"
 #include "data_storage.h"
+#include "ui.h"
 WebServer server(80);
 
 void handleRoot()
 {
-    String page = R"rawliteral(
-<!DOCTYPE html>
-<html>
-<head>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>ESP32 Handheld</title>
+    if (LittleFS.exists("/index.html"))
+    {
+        File file = LittleFS.open("/index.html", "r");
 
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background: #101820;
-            color: white;
-            text-align: center;
-            padding-top: 50px;
-        }
+        server.streamFile(file, "text/html");
 
-        h1 {
-            font-size: 28px;
-        }
-
-        .status {
-            color: #45F5A0;
-            font-size: 20px;
-        }
-    </style>
-</head>
-
-<body>
-
-    <h1>ESP32 Handheld</h1>
-
-    <p class="status">● Connected</p>
-
-    <p>Web server is working.</p>
-
-</body>
-</html>
-)rawliteral";
-
-    server.send(200, "text/html", page);
+        file.close();
+    }
+    else
+    {
+        server.send(
+            404,
+            "text/plain",
+            "index.html not found"
+        );
+    }
 }
 
+ 
 
 void handleStatus()
 {
@@ -79,6 +58,84 @@ void handleStatus()
         json
     );
 }
+
+// ============================================================
+// FOCUS API
+// ============================================================
+
+void handleFocus()
+{
+    unsigned long remaining = getFocusRemainingSeconds();
+    unsigned long duration = getFocusDurationSeconds();
+
+    unsigned long minutes = remaining / 60;
+    unsigned long seconds = remaining % 60;
+
+    String json = "{";
+    json += "\"running\":";
+    json += isFocusRunningFromWeb() ? "true" : "false";
+    json += ",";
+    json += "\"remaining\":";
+    json += String(remaining);
+    json += ",";
+    json += "\"minutes\":";
+    json += String(minutes);
+    json += ",";
+   json += "\"seconds\":";
+json += String(seconds);
+json += ",";
+json += "\"duration\":";
+json += String(duration);
+json += "}";
+
+    server.send(200, "application/json", json);
+}
+
+void handleFocusStart()
+{
+    focusStartFromWeb();
+
+    handleFocus();
+}
+
+void handleFocusPause()
+{
+    focusPauseFromWeb();
+
+    handleFocus();
+}
+
+void handleFocusReset()
+{
+    focusResetFromWeb();
+
+    handleFocus();
+}
+
+
+void handleFocusPreset()
+{
+    if (!server.hasArg("minutes"))
+    {
+        server.send(400, "application/json",
+                    "{\"error\":\"minutes missing\"}");
+        return;
+    }
+
+    unsigned long minutes = server.arg("minutes").toInt();
+
+    if (minutes != 15 && minutes != 25 && minutes != 50)
+    {
+        server.send(400, "application/json",
+                    "{\"error\":\"invalid preset\"}");
+        return;
+    }
+
+    focusSetPreset(minutes);
+    handleFocus();
+}
+
+
 void handleTodos()
 {
     String json = "{";
@@ -443,21 +500,67 @@ void handleHabitUpdate();
 void handleHabitEdit();
 void handleHabitCreate();
 void handleHabitDelete();
-
+void handleFocus();
+void handleFocusStart();
+void handleFocusPause();
+void handleFocusReset();
+void handleFocusPreset();
 void serverInit()
 {
+
+
     if (!wifiConnected())
     {
         Serial.println("Server not started: Wi-Fi not connected.");
         return;
     }
 
-   server.on("/", handleRoot);
+    // Mount the filesystem that contains the web dashboard.
+    if (!LittleFS.begin(true))
+    {
+        Serial.println("LittleFS mount failed.");
+    }
+    else
+    {
+        Serial.println("LittleFS mounted.");
+    }
+
+    // Allow a browser served from localhost or another device to call the API.
+    server.enableCORS(true);
+
+    // Serve index.html, app.js and style.css directly from the ESP32.
+    server.on("/", handleRoot);
 
 server.on(
     "/api/status",
     HTTP_GET,
     handleStatus
+);
+// Focus
+server.on("/api/focus", HTTP_GET, handleFocus);
+
+server.on(
+    "/api/focus/start",
+    HTTP_POST,
+    handleFocusStart
+);
+
+server.on(
+    "/api/focus/pause",
+    HTTP_POST,
+    handleFocusPause
+);
+
+server.on(
+    "/api/focus/reset",
+    HTTP_POST,
+    handleFocusReset
+);
+
+server.on(
+    "/api/focus/preset",
+    HTTP_POST,
+    handleFocusPreset
 );
 
 server.on(
@@ -568,7 +671,16 @@ server.on(
     handleHabitDelete
 );
 
-
+// CORS preflight support for future browser requests.
+server.on(
+    "/api/status",
+    HTTP_OPTIONS,
+    []()
+    {
+        server.send(204);
+    }
+);
+server.serveStatic("/", LittleFS, "/");
 server.begin();
 
     Serial.println("Web server started.");

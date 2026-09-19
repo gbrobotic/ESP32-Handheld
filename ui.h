@@ -43,3 +43,15 @@ void drawHabit(const char* name, const char* streak, int y, bool done);
 void drawProgressCard(const char* title, const char* value, int y, uint16_t color, int progress);
 void drawAlarmRow(const char* alarmTime, const char* name, int y, bool enabled);
 void drawSystemRow(const char* left, const char* right, int y, uint16_t rightColor);
+
+
+
+void focusStartFromWeb();
+void focusPauseFromWeb();
+void focusResetFromWeb();
+
+unsigned long getFocusRemainingSeconds();
+
+bool isFocusRunningFromWeb();
+void focusSetPreset(unsigned long minutes);
+unsigned long getFocusDurationSeconds();

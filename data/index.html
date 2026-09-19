@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ESP32 Handheld</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <div class="brand"><span class="brand-dot"></span><div><strong>Handheld</strong><small>ESP32 productivity</small></div></div>
+    <nav>
+      <button class="nav active" data-page="dashboard">⌂ <span>Dashboard</span></button>
+      <button class="nav" data-page="todo">✓ <span>Todo</span></button>
+      <button class="nav" data-page="habits">◒ <span>Habits</span></button>
+      <button class="nav" data-page="focus">◷ <span>Focus</span></button>
+      <button class="nav" data-page="alarms">◉ <span>Alarms</span></button>
+      <button class="nav" data-page="progress">↗ <span>Progress</span></button>
+      <button class="nav" data-page="device">⚙ <span>Device</span></button>
+    </nav>
+    <div class="connection"><span id="connectionDot"></span><span id="connectionText">Checking device…</span></div>
+  </aside>
+
+  <main>
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">PERSONAL PRODUCTIVITY</p>
+        <h1 id="pageTitle">Good day.</h1>
+      </div>
+      <div class="top-actions">
+        <button class="icon-btn" id="refreshBtn" title="Refresh">↻</button>
+        <div class="device-pill"><span id="pillDot"></span><span id="devicePill">Offline</span></div>
+      </div>
+    </header>
+
+    <section id="dashboard" class="page active">
+      <div class="hero-grid">
+        <div class="hero-card">
+          <div><p class="eyebrow">TODAY</p><div id="webClock" class="hero-time">--:--</div><div id="webDate" class="muted">Connecting…</div></div>
+          <div class="ring"><div><strong id="dashPercent">0%</strong><small>complete</small></div></div>
+        </div>
+        <div class="stat-card"><span>Tasks</span><strong id="dashTasks">0 / 0</strong><small>completed today</small></div>
+        <div class="stat-card"><span>Habits</span><strong id="dashHabits">0 / 0</strong><small>completed today</small></div>
+      </div>
+      <div class="section-head"><div><p class="eyebrow">TODAY</p><h2>Your day</h2></div><button class="text-btn" data-go="todo">View all →</button></div>
+      <div class="two-col">
+        <div class="panel"><div class="panel-head"><h3>Tasks</h3><button class="add-btn" data-go="todo">+ Add</button></div><div id="dashTodoList" class="list"></div></div>
+        <div class="panel"><div class="panel-head"><h3>Habits</h3><button class="add-btn" data-go="habits">+ Add</button></div><div id="dashHabitList" class="list"></div></div>
+      </div>
+      <div class="focus-strip"><div><p class="eyebrow">FOCUS</p><strong id="dashFocus">25:00</strong><span>Ready for a session</span></div><button class="primary" data-go="focus">Start focus</button></div>
+    </section>
+
+    <section id="todo" class="page">
+      <div class="section-head"><div><p class="eyebrow">TODAY</p><h2>Todo</h2></div><button class="primary" id="addTodo">+ New task</button></div>
+      <div id="todoList" class="stack"></div>
+    </section>
+
+    <section id="habits" class="page">
+      <div class="section-head"><div><p class="eyebrow">DAILY ROUTINE</p><h2>Habits</h2></div><button class="primary" id="addHabit">+ New habit</button></div>
+      <div id="habitList" class="stack"></div>
+    </section>
+
+    <section id="focus" class="page">
+      <div class="focus-page">
+        <p class="eyebrow">DEEP WORK</p><h2>Focus</h2>
+        <div class="timer-card"><div id="timer" class="timer">25:00</div><div id="timerStatus" class="muted">Ready</div><div class="timer-actions"><button class="primary" id="timerStart">Start</button><button class="secondary" id="timerReset">Reset</button></div></div>
+        <div class="preset-row"><button data-min="15">15 min</button><button data-min="25">25 min</button><button data-min="50">50 min</button></div>
+      </div>
+    </section>
+
+    <section id="alarms" class="page">
+      <div class="section-head"><div><p class="eyebrow">REMINDERS</p><h2>Alarms</h2></div><button class="primary" id="addAlarm">+ Add alarm</button></div>
+      <div id="alarmList" class="stack"></div>
+      <div class="notice">Alarm controls are prepared in the dashboard. ESP32 alarm API integration will be connected in the next firmware API pass.</div>
+    </section>
+
+    <section id="progress" class="page">
+      <div class="section-head"><div><p class="eyebrow">OVERVIEW</p><h2>Progress</h2></div></div>
+      <div class="progress-hero"><div class="big-percent" id="progressPercent">0%</div><div><strong>Today's completion</strong><p class="muted">Based on created tasks and habits.</p></div></div>
+      <div class="two-col"><div class="panel"><h3>Tasks</h3><div class="bar"><i id="taskBar"></i></div><div class="bar-label"><span id="taskProgress">0 / 0</span><span id="taskPct">0%</span></div></div><div class="panel"><h3>Habits</h3><div class="bar"><i id="habitBar"></i></div><div class="bar-label"><span id="habitProgress">0 / 0</span><span id="habitPct">0%</span></div></div></div>
+    </section>
+
+    <section id="device" class="page">
+      <div class="section-head"><div><p class="eyebrow">HARDWARE</p><h2>Device</h2></div><button class="secondary" id="refreshDevice">Refresh</button></div>
+      <div class="device-grid">
+        <div class="panel"><span class="muted">Device</span><strong id="devName">ESP32-S3</strong></div>
+        <div class="panel"><span class="muted">Wi-Fi</span><strong id="devWifi">—</strong></div>
+        <div class="panel"><span class="muted">IP address</span><strong id="devIp">—</strong></div>
+        <div class="panel"><span class="muted">Time</span><strong id="devTime">—</strong></div>
+      </div>
+      <div class="panel endpoint-panel"><h3>Connection</h3><p class="muted">When this page is served by the ESP32, it automatically uses the device address. When running from your PC during development, enter the ESP32 IP below.</p><div class="endpoint-row"><input id="baseUrl" placeholder="http://192.168.1.25"><button class="primary" id="saveUrl">Use address</button></div></div>
+    </section>
+  </main>
+
+  <div id="toast" class="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>
