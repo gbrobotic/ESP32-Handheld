@@ -1,196 +1,263 @@
 #include "ui.h"
 #include "display.h"
 #include "colors.h"
+#include "clock.h"
+#include "alarm.h"
+#include "wifi.h"
+#include "data_storage.h"
+#include <cstring>
+#include <WiFi.h>
+void updateFocusDisplay();
+void handleHabitsInput(ButtonEvent event);
+void handleProgressInput(ButtonEvent event);
+void handleAlarmInput(ButtonEvent event);
+void drawAlarmRinging();
+void handleClockInput(ButtonEvent event);
+void handleTodoInput(ButtonEvent event);
+void drawHabitRow(
+    const char* name,
+    int y,
+    bool completed,
+    int index
+);
+// ============================================================
+// UI STATE
+// ============================================================
 
-#include <Arduino.h>
+Screen currentScreen = SCREEN_HOME;
+int selectedMenu = 0;
 
+int selectedTodo = 0;
+char todoNames[3][32];
+int selectedAlarm = 0;
+enum AlarmEditField
+{
+    ALARM_SELECT,
+    ALARM_HOUR,
+    ALARM_MINUTE,
+    ALARM_ENABLED
+};
 
-// ======================================================
-// MENU
-// ======================================================
+AlarmEditField alarmEditField = ALARM_SELECT;
+
+bool todoCompleted[3] =
+{
+    false,
+    true,
+    false
+};
+
+int selectedHabit = 0;
+
+bool habitCompleted[3] =
+{
+    true,
+    false,
+    true
+};
+char habitNames[3][32];
+bool focusRunning = false;
+unsigned long focusStartTime = 0;
+unsigned long focusPausedTime = 0;
+int lastFocusSecond = -1;
+const unsigned long FOCUS_DURATION = 25UL * 60UL * 1000UL;
+
 
 const char* menuItems[] =
 {
-    "Todo",
-    "Focus",
-    "Habits",
-    "Progress",
-    "Clock",
-    "Alarm",
-    "System"
+    "TODO",
+    "FOCUS",
+    "HABITS",
+    "PROGRESS",
+    "CLOCK",
+    "ALARM",
+    "SYSTEM"
 };
 
-const int menuCount = 7;
+const int MENU_COUNT = 7;
 
+// ============================================================
+// DESIGN CONSTANTS
+// ============================================================
 
-// ======================================================
-// UI STATE
-// ======================================================
+static const int MARGIN = 16;
 
-Screen currentScreen = SCREEN_HOME;
+static const int HEADER_HEIGHT = 42;
+static const int FOOTER_Y = 286;
 
-int selected = 0;
+static const uint16_t BG = BG_COLOR;
+static const uint16_t TEXT = TEXT_COLOR;
+static const uint16_t SUBTEXT = SUBTEXT_COLOR;
+static const uint16_t ACCENT = ACCENT_COLOR;
+static const uint16_t CARD = CARD_COLOR;
+static const uint16_t SELECTED = CARD_SELECTED;
+static const uint16_t GREEN = GREEN_COLOR;
+static const uint16_t WARNING = WARNING_COLOR;
 
-
-// ======================================================
-// INITIALIZE UI
-// ======================================================
+// ============================================================
+// UI INIT
+// ============================================================
 
 void uiInit()
 {
     currentScreen = SCREEN_HOME;
-    selected = 0;
+    selectedMenu = 0;
 
-    drawCurrentScreen();
+    // Load saved Todo states
+    // Load saved Todo data
+for (int i = 0; i < 3; i++)
+{
+    todoCompleted[i] = loadTodoState(i);
+
+    loadTodoName(
+        i,
+        todoNames[i],
+        sizeof(todoNames[i])
+    );
 }
 
+    // Load saved Habit states
+    // Load saved Habit data
+for (int i = 0; i < 3; i++)
+{
+    habitCompleted[i] = loadHabitState(i);
 
-// ======================================================
-// INPUT HANDLING
-// ======================================================
+    loadHabitName(
+        i,
+        habitNames[i],
+        sizeof(habitNames[i])
+    );
+}
+}
+
+// ============================================================
+// INPUT
+// ============================================================
 
 void uiHandleInput(ButtonEvent event)
 {
-    switch (event)
+    if (currentScreen == SCREEN_HOME)
     {
-        // ==================================================
-        // LEFT
-        // ==================================================
+        if (event == BTN_LEFT_PRESSED)
+        {
+            selectedMenu--;
 
-        case BTN_LEFT_PRESSED:
+            if (selectedMenu < 0)
+                selectedMenu = MENU_COUNT - 1;
 
-            if (
-                currentScreen == SCREEN_HOME ||
-                currentScreen == SCREEN_MENU
-            )
-            {
-                selected--;
+            currentScreen = SCREEN_MENU;
+            drawCurrentScreen();
+        }
 
-                if (selected < 0)
-                    selected = menuCount - 1;
+        else if (event == BTN_RIGHT_PRESSED)
+        {
+            selectedMenu++;
 
-                drawCurrentScreen();
-            }
+            if (selectedMenu >= MENU_COUNT)
+                selectedMenu = 0;
 
-            break;
+            currentScreen = SCREEN_MENU;
+            drawCurrentScreen();
+        }
 
+        else if (event == BTN_OK_PRESSED)
+        {
+            currentScreen = SCREEN_MENU;
+            drawCurrentScreen();
+        }
+    }
 
-        // ==================================================
-        // RIGHT
-        // ==================================================
+    else if (currentScreen == SCREEN_MENU)
+    {
+        if (event == BTN_LEFT_PRESSED)
+        {
+            selectedMenu--;
 
-        case BTN_RIGHT_PRESSED:
-
-            if (
-                currentScreen == SCREEN_HOME ||
-                currentScreen == SCREEN_MENU
-            )
-            {
-                selected++;
-
-                if (selected >= menuCount)
-                    selected = 0;
-
-                drawCurrentScreen();
-            }
-
-            break;
-
-
-        // ==================================================
-        // OK
-        // ==================================================
-
-        case BTN_OK_PRESSED:
-
-            if (currentScreen == SCREEN_HOME)
-            {
-                currentScreen = SCREEN_MENU;
-
-                drawCurrentScreen();
-
-                Serial.println("OPEN MENU");
-            }
-
-            else if (currentScreen == SCREEN_MENU)
-            {
-                openSelectedFeature();
-            }
-
-            break;
-
-
-        // ==================================================
-        // HOME
-        // ==================================================
-
-        case BTN_HOME_PRESSED:
-
-            currentScreen = SCREEN_HOME;
+            if (selectedMenu < 0)
+                selectedMenu = MENU_COUNT - 1;
 
             drawCurrentScreen();
+        }
 
-            Serial.println("HOME");
+        else if (event == BTN_RIGHT_PRESSED)
+        {
+            selectedMenu++;
 
-            break;
+            if (selectedMenu >= MENU_COUNT)
+                selectedMenu = 0;
 
+            drawCurrentScreen();
+        }
 
-        default:
-            break;
+        else if (event == BTN_OK_PRESSED)
+        {
+            openSelectedFeature();
+        }
+
+        else if (event == BTN_HOME_PRESSED)
+        {
+            currentScreen = SCREEN_HOME;
+            drawCurrentScreen();
+        }
     }
-}
 
-
-// ======================================================
-// OPEN SELECTED FEATURE
-// ======================================================
-
-void openSelectedFeature()
-{
-    switch (selected)
+    else if (currentScreen == SCREEN_TODO)
     {
-        case 0:
-            currentScreen = SCREEN_TODO;
-            break;
-
-        case 1:
-            currentScreen = SCREEN_FOCUS;
-            break;
-
-        case 2:
-            currentScreen = SCREEN_HABITS;
-            break;
-
-        case 3:
-            currentScreen = SCREEN_PROGRESS;
-            break;
-
-        case 4:
-            currentScreen = SCREEN_CLOCK;
-            break;
-
-        case 5:
-            currentScreen = SCREEN_ALARM;
-            break;
-
-        case 6:
-            currentScreen = SCREEN_SYSTEM;
-            break;
+        handleTodoInput(event);
     }
+    else if (currentScreen == SCREEN_FOCUS)
+    {
+        handleFocusInput(event);
+    }
+else if (currentScreen == SCREEN_HABITS)
+{
+    handleHabitsInput(event);
+}
 
-    drawCurrentScreen();
+else if (currentScreen == SCREEN_PROGRESS)
+{
+    handleProgressInput(event);
 
-    Serial.print("OPEN: ");
-    Serial.println(menuItems[selected]);
+}
+
+else if (currentScreen == SCREEN_CLOCK)
+{
+    handleClockInput(event);
 }
 
 
-// ======================================================
-// DRAW CURRENT SCREEN
-// ======================================================
+else if (currentScreen == SCREEN_ALARM)
+{
+    handleAlarmInput(event);
+}
+else if (currentScreen == SCREEN_ALARM_RINGING)
+{
+    if (event == BTN_OK_PRESSED)
+    {
+        stopAlarm();
+
+        currentScreen = SCREEN_HOME;
+        drawCurrentScreen();
+    }
+}
+else if (currentScreen == SCREEN_SYSTEM)
+{
+    if (event == BTN_HOME_PRESSED)
+    {
+        currentScreen = SCREEN_MENU;
+        drawCurrentScreen();
+    }
+}
+
+}
+// ============================================================
+// CURRENT SCREEN
+// ============================================================
 
 void drawCurrentScreen()
 {
+    lcd.fillScreen(BG);
+
     switch (currentScreen)
     {
         case SCREEN_HOME:
@@ -228,448 +295,830 @@ void drawCurrentScreen()
         case SCREEN_SYSTEM:
             drawSystem();
             break;
+        case SCREEN_ALARM_RINGING:
+            drawAlarmRinging();
+            break;
+    }
+}
+
+// ============================================================
+// HOME SCREEN
+
+
+void reloadHomeData()
+{
+    for (int i = 0; i < 3; i++)
+    {
+        todoCompleted[i] = loadTodoState(i);
+
+        loadTodoName(
+            i,
+            todoNames[i],
+            sizeof(todoNames[i])
+        );
+
+        habitCompleted[i] = loadHabitState(i);
+
+        loadHabitName(
+            i,
+            habitNames[i],
+            sizeof(habitNames[i])
+        );
     }
 }
 
 
-// ======================================================
-// HOME SCREEN
-// ======================================================
-
 void drawHome()
 {
-    lcd.fillScreen(BG_COLOR);
+     reloadHomeData();
+    lcd.fillScreen(BG);
 
+    // ========================================================
+    // TOP BAR
+    // ========================================================
+
+    lcd.setFont(&fonts::Font2);
     lcd.setTextDatum(top_left);
+    lcd.setTextColor(TEXT, BG);
+lcd.drawString(getDayName(), 16, 14);
+    
 
-    // Header
-    lcd.setTextColor(SUBTEXT_COLOR);
-    lcd.setTextSize(1);
-
-    lcd.drawString("10:42", 18, 12);
-
-    lcd.drawString("Wi-Fi", 174, 12);
-
-    lcd.fillCircle(216, 16, 3, ACCENT_COLOR);
-    lcd.fillCircle(225, 16, 3, SUBTEXT_COLOR);
-    lcd.fillCircle(234, 16, 3, SUBTEXT_COLOR);
-
-    lcd.drawLine(15, 32, 225, 32, LINE_COLOR);
+    // Status indicator
+    // Later this will become Wi-Fi / battery status
+    lcd.fillCircle(
+        222,
+        18,
+        4,
+        ACCENT
+    );
 
 
-    // ==================================================
-    // BIG TIME
-    // ==================================================
-
-    lcd.setTextDatum(middle_center);
-
-    lcd.setTextColor(TEXT_COLOR);
-    lcd.setTextSize(4);
-
-    lcd.drawString("10:42", 120, 70);
-
-
-    // ==================================================
+    // ========================================================
     // DATE
-    // ==================================================
+    // ========================================================
 
-    lcd.setTextColor(SUBTEXT_COLOR);
-    lcd.setTextSize(1);
-
-    lcd.drawString(
-        "Thursday, Sep 18",
-        120,
-        103
-    );
-
-
-    // ==================================================
-    // TASK CARD
-    // ==================================================
-
-    lcd.fillRoundRect(
-        15,
-        125,
-        210,
-        65,
-        10,
-        CARD_COLOR
-    );
-
+    lcd.setFont(&fonts::Font2);
     lcd.setTextDatum(top_left);
+    lcd.setTextColor(SUBTEXT, BG);
 
-    lcd.setTextSize(1);
-    lcd.setTextColor(SUBTEXT_COLOR);
-
-    lcd.drawString(
-        "Today's Tasks",
-        28,
-        138
-    );
-
-    lcd.setTextColor(ACCENT_COLOR);
-    lcd.setTextSize(2);
-
-    lcd.drawString(
-        "3/7",
-        28,
-        158
-    );
+    lcd.drawString(getDateString(), 16, 38);
 
 
-    // Progress bar
+    // ========================================================
+    // MAIN CLOCK
+    // ========================================================
 
-    lcd.fillRoundRect(
-        115,
-        158,
-        90,
-        6,
-        3,
-        DARK_BAR
-    );
-
-    lcd.fillRoundRect(
-        115,
-        158,
-        38,
-        6,
-        3,
-        GREEN_COLOR
-    );
-
-
-    // ==================================================
-    // NEXT TASK
-    // ==================================================
-
-    lcd.setTextColor(SUBTEXT_COLOR);
-    lcd.setTextSize(1);
-
-    lcd.drawString(
-        "Next Task",
-        18,
-        207
-    );
-
-    lcd.setTextColor(ACCENT_COLOR);
-    lcd.setTextSize(2);
-
-    lcd.drawString(
-        "Design review",
-        18,
-        224
-    );
-
-
-    // ==================================================
-    // CONTROLS
-    // ==================================================
-
+    lcd.setFont(&fonts::Font6);
     lcd.setTextDatum(middle_center);
+    lcd.setTextColor(TEXT, BG);
 
-    lcd.setTextColor(SUBTEXT_COLOR);
-    lcd.setTextSize(1);
+    lcd.drawString(getTimeString(), 120, 105);
 
-    lcd.drawString(
-        "LEFT / RIGHT",
-        120,
-        260
-    );
 
-    lcd.drawString(
-        "OK = MENU",
-        120,
-        278
-    );
+    // ========================================================
+    // TODAY
+    // ========================================================
 
-    lcd.drawLine(
-        15,
-        295,
-        225,
-        295,
-        LINE_COLOR
-    );
+    lcd.setFont(&fonts::Font4);
+    lcd.setTextDatum(top_left);
+    lcd.setTextColor(TEXT, BG);
 
     lcd.drawString(
-        "HOME",
-        120,
-        307
+        "TODAY",
+        16,
+        170
     );
+
+
+    // ========================================================
+    // TASKS
+    // ========================================================
+
+    lcd.setFont(&fonts::Font2);
+    lcd.setTextColor(ACCENT, BG);
+
+    int totalTasks = 0;
+int completedTasks = 0;
+
+for (int i = 0; i < 3; i++)
+{
+    if (strlen(todoNames[i]) > 0)
+    {
+        totalTasks++;
+
+        if (todoCompleted[i])
+            completedTasks++;
+    }
 }
 
+if (totalTasks > 0 && completedTasks == totalTasks)
+{
+    // ALL created tasks completed
+    lcd.fillCircle(25, 215, 7, GREEN);
+}
+else
+{
+    // At least one task remains incomplete
+    lcd.drawCircle(25, 215, 7, ACCENT);
+}
 
-// ======================================================
-// MENU SCREEN
-// ======================================================
+    lcd.setTextDatum(middle_left);
+    lcd.setTextColor(TEXT, BG);
+
+    int taskCount = 0;
+
+for (int i = 0; i < 3; i++)
+{
+    if (strlen(todoNames[i]) > 0)
+        taskCount++;
+}
+
+char taskText[8];
+sprintf(taskText, "%d", taskCount);
+
+lcd.drawString(
+    taskText,
+    48,
+    215
+);
+
+    lcd.setTextColor(SUBTEXT, BG);
+
+    lcd.drawString(
+        "Tasks",
+        72,
+        215
+    );
+
+
+    // ========================================================
+    // HABITS
+    // ========================================================
+
+    lcd.setTextColor(ACCENT, BG);
+
+   int totalHabits = 0;
+int completedHabits = 0;
+
+for (int i = 0; i < 3; i++)
+{
+    if (strlen(habitNames[i]) > 0)
+    {
+        totalHabits++;
+
+        if (habitCompleted[i])
+            completedHabits++;
+    }
+}
+
+if (totalHabits > 0 && completedHabits == totalHabits)
+{
+    // ALL created habits completed
+    lcd.fillCircle(25, 250, 7, GREEN);
+}
+else
+{
+    // At least one habit remains incomplete
+    lcd.drawCircle(25, 250, 7, ACCENT);
+}
+
+    lcd.setTextDatum(middle_left);
+    lcd.setTextColor(TEXT, BG);
+
+    int habitCount = 0;
+
+for (int i = 0; i < 3; i++)
+{
+    if (strlen(habitNames[i]) > 0)
+        habitCount++;
+}
+
+char habitText[8];
+sprintf(habitText, "%d", habitCount);
+
+lcd.drawString(
+    habitText,
+    48,
+    250
+);
+
+    lcd.setTextColor(SUBTEXT, BG);
+
+    lcd.drawString(
+        "Habits",
+        72,
+        250
+    );
+
+
+    // ========================================================
+    // MENU
+    // ========================================================
+
+    lcd.setTextDatum(middle_right);
+    lcd.setTextColor(SUBTEXT, BG);
+    lcd.setFont(&fonts::Font2);
+
+    lcd.drawString(
+        "MENU  >",
+        224,
+        304
+    );
+}
+// ============================================================
 
 void drawMenu()
 {
-    lcd.fillScreen(BG_COLOR);
+    // ========================================================
+    // MENU HEADER
+    // ========================================================
 
-    // Header
-
+    lcd.setFont(&fonts::Font4);
     lcd.setTextDatum(top_left);
-
-    lcd.setTextColor(SUBTEXT_COLOR);
-    lcd.setTextSize(1);
-
-    lcd.drawString("10:42", 18, 10);
-
-    lcd.drawString("Wi-Fi", 178, 10);
-
-    lcd.fillCircle(218, 14, 3, ACCENT_COLOR);
-    lcd.fillCircle(226, 14, 3, SUBTEXT_COLOR);
-    lcd.fillCircle(234, 14, 3, SUBTEXT_COLOR);
-
-
-    // Title
-
-    lcd.setTextColor(TEXT_COLOR);
-    lcd.setTextSize(3);
+    lcd.setTextColor(TEXT, BG);
 
     lcd.drawString(
-        "Menu",
-        18,
-        40
+        "MENU",
+        MARGIN,
+        12
     );
 
 
-    // Menu items
+    // ========================================================
+    // MENU ITEMS
+    // ========================================================
 
-    int startY = 82;
-    int rowHeight = 30;
+    const int startY = 58;
+    const int itemHeight = 31;
 
-    for (int i = 0; i < menuCount; i++)
+    for (int i = 0; i < MENU_COUNT; i++)
     {
-        int y = startY + i * rowHeight;
+        int y = startY + i * itemHeight;
+
+        bool selected = (i == selectedMenu);
 
 
-        // Selected background
+        // ----------------------------------------------------
+        // Selection box
+        // ----------------------------------------------------
 
-        if (i == selected)
+        if (selected)
         {
             lcd.fillRoundRect(
-                12,
-                y - 4,
-                216,
-                29,
+                MARGIN,
+                y,
+                208,
+                27,
                 7,
-                CARD_SELECTED
+                SELECTED
             );
 
+            // Small accent indicator
             lcd.fillRoundRect(
-                12,
-                y - 4,
-                4,
-                29,
+                MARGIN + 7,
+                y + 7,
+                3,
+                13,
                 2,
-                ACCENT_COLOR
+                ACCENT
             );
         }
 
 
-        // Simple icons
-        lcd.setTextDatum(middle_center);
-        lcd.setTextSize(2);
+        // ----------------------------------------------------
+        // Menu text
+        // ----------------------------------------------------
 
-        if (i == 0)
-            lcd.drawString("O", 30, y + 9);
+        lcd.setFont(&fonts::Font2);
+        lcd.setTextDatum(middle_left);
 
-        else if (i == 1)
-            lcd.drawString(">", 30, y + 9);
-
-        else if (i == 2)
-            lcd.drawString("*", 30, y + 9);
-
-        else if (i == 3)
-            lcd.drawString("#", 30, y + 9);
-
-        else if (i == 4)
-            lcd.drawString("@", 30, y + 9);
-
-        else if (i == 5)
-            lcd.drawString("!", 30, y + 9);
-
-        else if (i == 6)
-            lcd.drawString("+", 30, y + 9);
-
-
-        // Text
-
-        if (i == selected)
-            lcd.setTextColor(ACCENT_COLOR);
-        else
-            lcd.setTextColor(TEXT_COLOR);
-
-        lcd.setTextSize(2);
+        lcd.setTextColor(
+            selected ? TEXT : SUBTEXT,
+            selected ? SELECTED : BG
+        );
 
         lcd.drawString(
             menuItems[i],
-            105,
-            y + 9
+            MARGIN + 18,
+            y + 13
         );
     }
 
 
-    // Bottom controls
+    // ========================================================
+    // FOOTER
+    // ========================================================
 
-    lcd.setTextColor(SUBTEXT_COLOR);
-    lcd.setTextSize(1);
-
-    lcd.drawString("LEFT", 20, 298);
-    lcd.drawString("RIGHT", 92, 298);
-    lcd.drawString("OK", 175, 298);
-}
-
-
-// ======================================================
-// TODO
-// ======================================================
-
-void drawTodo()
-{
-    drawFeatureHeader("Todo");
-
-    lcd.setTextDatum(top_left);
-
-    lcd.setTextSize(2);
-    lcd.setTextColor(ACCENT_COLOR);
-
-    lcd.drawString("3/7", 18, 55);
-
-    lcd.setTextSize(1);
-    lcd.setTextColor(SUBTEXT_COLOR);
+    lcd.setFont(&fonts::Font2);
+    lcd.setTextDatum(middle_center);
+    lcd.setTextColor(SUBTEXT, BG);
 
     lcd.drawString(
-        "Today's tasks",
-        65,
-        62
+        " <  SELECT   >",
+        120,
+        304
     );
+}
+// ============================================================
+// FEATURE HEADER
+// ============================================================
 
-    drawTask("Design review", 95, false);
-    drawTask("Send proposal", 130, false);
-    drawTask("Morning workout", 165, true);
-    drawTask("Buy groceries", 200, false);
-    drawTask("Team meeting", 235, false);
+void drawFeatureHeader(const char* title)
+{
+    lcd.setFont(&fonts::Font4);
+    lcd.setTextSize(1);
+    lcd.setTextDatum(top_left);
+    lcd.setTextColor(TEXT, BG);
 
-    drawBottomHint("OK = complete");
+    lcd.drawString(
+        title,
+        MARGIN,
+        12
+    );
+}
+// ============================================================
+// FOOTER
+// ============================================================
+
+void drawBottomHint(const char* text)
+{
+    lcd.setFont(&fonts::Font2);
+    lcd.setTextSize(1);
+    lcd.setTextDatum(middle_center);
+
+    lcd.setTextColor(SUBTEXT, BG);
+
+    lcd.drawString(
+        text,
+        120,
+        304
+    );
 }
 
+// ============================================================
+// TODO
+// ============================================================
+void drawTodo()
+{
+    drawFeatureHeader("TODO");
 
-// ======================================================
-// TASK
-// ======================================================
+ if (strlen(todoNames[0]) == 0)
+{
+    drawTask(
+        "Empty",
+        72,
+        false
+    );
+}
+else
+{
+    drawTask(
+        todoNames[0],
+        72,
+        todoCompleted[0]
+    );
+}
 
+if (strlen(todoNames[1]) == 0)
+{
+    drawTask(
+        "Empty",
+        122,
+        false
+    );
+}
+else
+{
+    drawTask(
+        todoNames[1],
+        122,
+        todoCompleted[1]
+    );
+}
+
+if (strlen(todoNames[2]) == 0)
+{
+    drawTask(
+        "Empty",
+        172,
+        false
+    );
+}
+else
+{
+    drawTask(
+        todoNames[2],
+        172,
+        todoCompleted[2]
+    );
+}
+
+    drawBottomHint("<   SELECT   OK");
+}
 void drawTask(
     const char* name,
     int y,
     bool completed
 )
 {
-    lcd.setTextDatum(middle_left);
+    bool selected = false;
 
-    lcd.setTextSize(1);
+    if (y == 72 && selectedTodo == 0)
+        selected = true;
 
+    if (y == 122 && selectedTodo == 1)
+        selected = true;
+
+    if (y == 172 && selectedTodo == 2)
+        selected = true;
+
+
+    // Selected row — same style as MENU
+    if (selected)
+    {
+        lcd.fillRoundRect(
+            MARGIN,
+            y - 16,
+            208,
+            32,
+            8,
+            SELECTED
+        );
+
+        // Small cyan indicator
+        lcd.fillRoundRect(
+            MARGIN + 8,
+            y - 8,
+            4,
+            16,
+            2,
+            ACCENT
+        );
+    }
+
+
+    // Task completion circle
     if (completed)
     {
-        lcd.setTextColor(GREEN_COLOR);
-        lcd.drawString("●", 20, y);
-
-        lcd.setTextColor(SUBTEXT_COLOR);
-        lcd.drawString(name, 38, y);
+        lcd.fillCircle(
+            MARGIN + 28,
+            y,
+            6,
+            GREEN
+        );
     }
     else
     {
-        lcd.setTextColor(SUBTEXT_COLOR);
-        lcd.drawString("○", 20, y);
+        lcd.drawCircle(
+            MARGIN + 28,
+            y,
+            6,
+            ACCENT
+        );
+    }
 
-        lcd.setTextColor(TEXT_COLOR);
-        lcd.drawString(name, 38, y);
+
+    // Task name
+    lcd.setFont(&fonts::Font2);
+    lcd.setTextDatum(middle_left);
+
+    lcd.setTextColor(
+        completed ? SUBTEXT : TEXT,
+        selected ? SELECTED : BG
+    );
+
+    lcd.drawString(
+        name,
+        MARGIN + 42,
+        y
+    );
+}// FOCUS
+
+void handleTodoInput(ButtonEvent event)
+{
+    if (event == BTN_LEFT_PRESSED)
+    {
+        selectedTodo--;
+
+        if (selectedTodo < 0)
+            selectedTodo = 2;
+
+        drawCurrentScreen();
+    }
+
+    else if (event == BTN_RIGHT_PRESSED)
+    {
+        selectedTodo++;
+
+        if (selectedTodo > 2)
+            selectedTodo = 0;
+
+        drawCurrentScreen();
+    }
+
+    else if (event == BTN_OK_PRESSED)
+    {
+        // Don't complete an empty slot
+        if (strlen(todoNames[selectedTodo]) > 0)
+        {
+            todoCompleted[selectedTodo] =
+                !todoCompleted[selectedTodo];
+
+            saveTodoState(
+                selectedTodo,
+                todoCompleted[selectedTodo]
+            );
+        }
+
+        drawCurrentScreen();
+    }
+
+    else if (event == BTN_HOME_PRESSED)
+    {
+        currentScreen = SCREEN_MENU;
+        drawCurrentScreen();
     }
 }
 
-
-// ======================================================
-// FOCUS
-// ======================================================
-
+// ============================================================
 void drawFocus()
 {
-    drawFeatureHeader("Focus");
+    drawFeatureHeader("FOCUS");
 
-    lcd.setTextDatum(middle_center);
+    unsigned long elapsed = focusPausedTime;
 
-    lcd.setTextColor(TEXT_COLOR);
-    lcd.setTextSize(5);
+    if (focusRunning)
+    {
+        elapsed = millis() - focusStartTime;
+    }
 
-    lcd.drawString(
-        "25:00",
-        120,
-        130
+    if (elapsed > FOCUS_DURATION)
+        elapsed = FOCUS_DURATION;
+
+    unsigned long remaining = FOCUS_DURATION - elapsed;
+
+    int minutes = remaining / 60000;
+    int seconds = (remaining % 60000) / 1000;
+
+    char timerText[10];
+
+    sprintf(
+        timerText,
+        "%02d:%02d",
+        minutes,
+        seconds
     );
 
-    lcd.setTextColor(SUBTEXT_COLOR);
+    // TIMER
+    lcd.setFont(&fonts::Font6);
     lcd.setTextSize(1);
+    lcd.setTextDatum(middle_center);
+    lcd.setTextColor(TEXT, BG);
 
     lcd.drawString(
-        "Design review",
+        timerText,
         120,
-        175
+        110
     );
+
+    // SESSION NAME
+    lcd.setFont(&fonts::Font4);
+    lcd.setTextSize(1);
+    lcd.setTextColor(SUBTEXT, BG);
+
+    lcd.drawString(
+        "DEEP WORK",
+        120,
+        155
+    );
+
+    // PROGRESS
+    int progressWidth =
+        (168UL * elapsed) / FOCUS_DURATION;
 
     lcd.fillRoundRect(
-        35,
-        205,
-        170,
-        8,
-        4,
+        36,
+        195,
+        168,
+        6,
+        3,
         DARK_BAR
     );
 
-    lcd.fillRoundRect(
-        35,
-        205,
-        65,
-        8,
-        4,
-        ACCENT_COLOR
+    if (progressWidth > 0)
+    {
+        lcd.fillRoundRect(
+            36,
+            195,
+            progressWidth,
+            6,
+            3,
+            ACCENT
+        );
+    }
+
+    // SESSION INFO
+    char sessionText[20];
+
+    sprintf(
+        sessionText,
+        "%lu:%02lu / 25:00",
+        elapsed / 60000,
+        (elapsed % 60000) / 1000
     );
 
-    lcd.setTextColor(ACCENT_COLOR);
-    lcd.setTextSize(2);
+lcd.setFont(&fonts::Font4);
+lcd.setTextSize(1);
+lcd.setTextDatum(middle_center);
+    lcd.setTextColor(SUBTEXT, BG);
 
     lcd.drawString(
-        "START",
+        sessionText,
+        120,
+        225
+    );
+
+    // STATUS
+    lcd.setFont(&fonts::Font4);
+lcd.setTextSize(1);
+lcd.setTextDatum(middle_center);
+
+    lcd.setTextColor(
+        focusRunning ? ACCENT : SUBTEXT,
+        BG
+    );
+
+    lcd.drawString(
+        focusRunning ? "RUNNING" : "PAUSED",
         120,
         250
     );
 
-    drawBottomHint("OK = start / pause");
+    drawBottomHint(
+        "OK  START/PAUSE     HOME"
+    );
 }
 
 
-// ======================================================
-// HABITS
-// ======================================================
+
+void handleFocusInput(ButtonEvent event)
+{
+        if (event == BTN_OK_PRESSED)
+    {
+        if (!focusRunning)
+        {
+            focusStartTime =
+                millis() - focusPausedTime;
+
+            focusRunning = true;
+            lastFocusSecond = -1;
+
+            drawCurrentScreen();
+        }
+        else
+        {
+            focusPausedTime =
+                millis() - focusStartTime;
+
+            focusRunning = false;
+
+            drawCurrentScreen();
+        }
+    }
+
+    else if (event == BTN_HOME_PRESSED)
+    {
+        focusRunning = false;
+        currentScreen = SCREEN_MENU;
+        drawCurrentScreen();
+    }
+}
+
 
 void drawHabits()
 {
-    drawFeatureHeader("Habits");
+    drawFeatureHeader("HABITS");
 
-    drawHabit("Exercise", "5 day streak", 65, true);
-    drawHabit("Read 30 min", "12 day streak", 110, false);
-    drawHabit("Meditate", "7 day streak", 155, true);
-    drawHabit("Drink water", "30 day streak", 200, false);
-    drawHabit("Journal", "3 day streak", 245, true);
+    // Habit 1
+    if (strlen(habitNames[0]) == 0)
+    {
+        drawHabitRow("Empty", 72, false, 0);
+    }
+    else
+    {
+        drawHabitRow(
+            habitNames[0],
+            72,
+            habitCompleted[0],
+            0
+        );
+    }
 
-    drawBottomHint("OK = complete");
+    // Habit 2
+    if (strlen(habitNames[1]) == 0)
+    {
+        drawHabitRow("Empty", 122, false, 1);
+    }
+    else
+    {
+        drawHabitRow(
+            habitNames[1],
+            122,
+            habitCompleted[1],
+            1
+        );
+    }
+
+    // Habit 3
+    if (strlen(habitNames[2]) == 0)
+    {
+        drawHabitRow("Empty", 172, false, 2);
+    }
+    else
+    {
+        drawHabitRow(
+            habitNames[2],
+            172,
+            habitCompleted[2],
+            2
+        );
+    }
+
+    drawBottomHint(" <   SELECT   OK");
+}
+
+void drawHabitRow(
+    const char* name,
+    int y,
+    bool completed,
+    int index
+)
+{
+    bool selected = (index == selectedHabit);
+
+    // Selection background
+    if (selected)
+    {
+        lcd.fillRoundRect(
+            MARGIN,
+            y - 16,
+            208,
+            32,
+            8,
+            SELECTED
+        );
+
+        // Accent indicator
+        lcd.fillRoundRect(
+            MARGIN + 8,
+            y - 8,
+            4,
+            16,
+            2,
+            ACCENT
+        );
+    }
+
+    // Completion circle
+    if (completed)
+    {
+        lcd.fillCircle(
+            MARGIN + 28,
+            y,
+            6,
+            GREEN
+        );
+    }
+    else
+    {
+        lcd.drawCircle(
+            MARGIN + 28,
+            y,
+            6,
+            ACCENT
+        );
+    }
+
+    // Habit name
+    lcd.setFont(&fonts::Font2);
+    lcd.setTextDatum(middle_left);
+
+    lcd.setTextColor(
+        completed ? SUBTEXT : TEXT,
+        selected ? SELECTED : BG
+    );
+
+    lcd.drawString(
+        name,
+        MARGIN + 42,
+        y
+    );
 }
 
 
-// ======================================================
+// ============================================================
 // HABIT
-// ======================================================
-
+// ============================================================
 void drawHabit(
     const char* name,
     const char* streak,
@@ -677,79 +1126,227 @@ void drawHabit(
     bool done
 )
 {
+    int habitIndex = 0;
+
+    if (y == 130)
+        habitIndex = 1;
+    else if (y == 180)
+        habitIndex = 2;
+
+    bool selected = (habitIndex == selectedHabit);
+
+    // Selection background
+    if (selected)
+    {
+        lcd.fillRoundRect(
+            MARGIN,
+            y - 12,
+            208,
+            42,
+            8,
+            SELECTED
+        );
+
+        lcd.fillRoundRect(
+            MARGIN + 8,
+            y - 5,
+            4,
+            16,
+            2,
+            ACCENT
+        );
+    }
+
+    // Habit name
+    lcd.setFont(&fonts::Font2);
+    lcd.setTextSize(1);
     lcd.setTextDatum(top_left);
 
-    if (done)
-        lcd.setTextColor(GREEN_COLOR);
-    else
-        lcd.setTextColor(SUBTEXT_COLOR);
-
-    lcd.setTextSize(1);
-
-    lcd.drawString(
-        done ? "●" : "○",
-        18,
-        y
+    lcd.setTextColor(
+        TEXT,
+        selected ? SELECTED : BG
     );
-
-    lcd.setTextColor(TEXT_COLOR);
 
     lcd.drawString(
         name,
-        35,
-        y
+        MARGIN + 18,
+        y - 8
     );
 
-    lcd.setTextColor(SUBTEXT_COLOR);
+    // Streak
+    lcd.setTextColor(
+        SUBTEXT,
+        selected ? SELECTED : BG
+    );
 
     lcd.drawString(
         streak,
-        35,
-        y + 14
+        MARGIN + 18,
+        y + 10
     );
+
+    // Completion indicator
+    lcd.setTextDatum(middle_center);
+
+    if (done)
+    {
+        lcd.fillCircle(
+            210,
+            y + 5,
+            7,
+            GREEN
+        );
+    }
+    else
+    {
+        lcd.drawCircle(
+            210,
+            y + 5,
+            7,
+            SUBTEXT
+        );
+    }
+}
+
+void handleHabitsInput(ButtonEvent event)
+{
+    if (event == BTN_LEFT_PRESSED)
+    {
+        selectedHabit--;
+
+        if (selectedHabit < 0)
+            selectedHabit = 2;
+
+        drawCurrentScreen();
+    }
+
+    else if (event == BTN_RIGHT_PRESSED)
+    {
+        selectedHabit++;
+
+        if (selectedHabit > 2)
+            selectedHabit = 0;
+
+        drawCurrentScreen();
+    }
+
+else if (event == BTN_OK_PRESSED)
+{
+    habitCompleted[selectedHabit] =
+        !habitCompleted[selectedHabit];
+
+    saveHabitState(
+        selectedHabit,
+        habitCompleted[selectedHabit]
+    );
+
+    drawCurrentScreen();
+}
+
+    else if (event == BTN_HOME_PRESSED)
+    {
+        currentScreen = SCREEN_MENU;
+        drawCurrentScreen();
+    }
 }
 
 
-// ======================================================
+// ============================================================
 // PROGRESS
-// ======================================================
-
+// ============================================================
 void drawProgress()
 {
-    drawFeatureHeader("Progress");
+    drawFeatureHeader("PROGRESS");
 
-    drawProgressCard(
-        "Tasks",
-        "3/7",
-        80,
-        ACCENT_COLOR,
-        43
+    // -------------------------
+    // TODAY - TASKS
+    // -------------------------
+
+    int totalTasks = 0;
+    int completedTasks = 0;
+
+    for (int i = 0; i < 3; i++)
+    {
+        if (strlen(todoNames[i]) > 0)
+        {
+            totalTasks++;
+
+            if (todoCompleted[i])
+                completedTasks++;
+        }
+    }
+
+    int todayProgress = 0;
+
+    if (totalTasks > 0)
+        todayProgress = (completedTasks * 100) / totalTasks;
+
+    char todayText[16];
+
+    sprintf(
+        todayText,
+        "%d/%d  %d%%",
+        completedTasks,
+        totalTasks,
+        todayProgress
     );
 
     drawProgressCard(
-        "Focus",
-        "1h 25m",
-        145,
-        ACCENT_COLOR,
-        0
+        "TODAY",
+        todayText,
+        65,
+        ACCENT,
+        todayProgress
+    );
+
+
+    // -------------------------
+    // HABITS
+    // -------------------------
+
+    int totalHabits = 0;
+    int completedHabits = 0;
+
+    for (int i = 0; i < 3; i++)
+    {
+        if (strlen(habitNames[i]) > 0)
+        {
+            totalHabits++;
+
+            if (habitCompleted[i])
+                completedHabits++;
+        }
+    }
+
+    int habitProgress = 0;
+
+    if (totalHabits > 0)
+        habitProgress =
+            (completedHabits * 100) / totalHabits;
+
+    char habitText[16];
+
+    sprintf(
+        habitText,
+        "%d/%d  %d%%",
+        completedHabits,
+        totalHabits,
+        habitProgress
     );
 
     drawProgressCard(
-        "Habits",
-        "4/6",
-        210,
-        GREEN_COLOR,
-        50
+        "HABITS",
+        habitText,
+        205,
+        WARNING,
+        habitProgress
     );
 
-    drawBottomHint("Today's progress");
-}
 
-
-// ======================================================
+    drawBottomHint("HOME  BACK");
+}// ============================================================
 // PROGRESS CARD
-// ======================================================
-
+// ============================================================
 void drawProgressCard(
     const char* title,
     const char* value,
@@ -758,251 +1355,328 @@ void drawProgressCard(
     int progress
 )
 {
-    lcd.fillRoundRect(
-        15,
-        y,
-        210,
-        55,
-        8,
-        CARD_COLOR
-    );
+    // -------------------------
+    // TITLE
+    // -------------------------
 
-    lcd.setTextDatum(top_left);
-
-    lcd.setTextColor(SUBTEXT_COLOR);
+    lcd.setFont(&fonts::Font4);
     lcd.setTextSize(1);
+    lcd.setTextDatum(top_left);
+    lcd.setTextColor(SUBTEXT, BG);
 
     lcd.drawString(
         title,
-        28,
-        y + 9
-    );
-
-    lcd.setTextColor(TEXT_COLOR);
-    lcd.setTextSize(2);
-
-    lcd.drawString(
-        value,
-        28,
-        y + 28
-    );
-
-    if (progress > 0)
-    {
-        lcd.fillRoundRect(
-            110,
-            y + 28,
-            85,
-            6,
-            3,
-            DARK_BAR
-        );
-
-        lcd.fillRoundRect(
-            110,
-            y + 28,
-            progress,
-            6,
-            3,
-            color
-        );
-    }
-}
-
-
-// ======================================================
-// CLOCK
-// ======================================================
-
-void drawClock()
-{
-    lcd.fillScreen(BG_COLOR);
-
-    lcd.setTextDatum(middle_center);
-
-    lcd.setTextColor(TEXT_COLOR);
-    lcd.setTextSize(5);
-
-    lcd.drawString(
-        "10:42",
-        120,
-        125
-    );
-
-    lcd.setTextColor(SUBTEXT_COLOR);
-    lcd.setTextSize(2);
-
-    lcd.drawString(
-        "Thursday",
-        120,
-        180
-    );
-
-    lcd.setTextSize(1);
-
-    lcd.drawString(
-        "September 18, 2026",
-        120,
-        207
-    );
-
-    lcd.drawString(
-        "HOME = return",
-        120,
-        295
-    );
-}
-
-
-// ======================================================
-// ALARM
-// ======================================================
-
-void drawAlarm()
-{
-    drawFeatureHeader("Alarms");
-
-    drawAlarmRow(
-        "06:30",
-        "Wake up",
-        70,
-        true
-    );
-
-    drawAlarmRow(
-        "07:00",
-        "Exercise",
-        125,
-        true
-    );
-
-    drawAlarmRow(
-        "12:00",
-        "Lunch break",
-        180,
-        false
-    );
-
-    drawAlarmRow(
-        "22:00",
-        "Wind down",
-        235,
-        true
-    );
-
-    drawBottomHint("OK = edit");
-}
-
-
-// ======================================================
-// ALARM ROW
-// ======================================================
-
-void drawAlarmRow(
-    const char* alarmTime,
-    const char* name,
-    int y,
-    bool enabled
-)
-{
-    lcd.setTextDatum(top_left);
-
-    lcd.setTextColor(
-        enabled ? TEXT_COLOR : SUBTEXT_COLOR
-    );
-
-    lcd.setTextSize(3);
-
-    lcd.drawString(
-        alarmTime,
-        18,
+        MARGIN,
         y
     );
 
-    lcd.setTextSize(1);
 
-    lcd.setTextColor(SUBTEXT_COLOR);
+    // -------------------------
+    // PERCENTAGE
+    // -------------------------
+
+    lcd.setFont(&fonts::Font4);
+    lcd.setTextSize(1);
+    lcd.setTextDatum(top_right);
+    lcd.setTextColor(TEXT, BG);
 
     lcd.drawString(
-        name,
-        20,
-        y + 32
+        value,
+        224,
+        y - 2
     );
 
-    if (enabled)
-        lcd.fillCircle(
-            205,
-            y + 15,
-            6,
-            ACCENT_COLOR
+
+    // -------------------------
+    // PROGRESS BAR
+    // -------------------------
+
+    lcd.fillRoundRect(
+        MARGIN,
+        y + 30,
+        208,
+        5,
+        2,
+        DARK_BAR
+    );
+
+    lcd.fillRoundRect(
+        MARGIN,
+        y + 30,
+        (208 * progress) / 100,
+        5,
+        2,
+        color
+    );
+}
+// ============================================================
+// CLOCK
+// ============================================================
+void drawClock()
+{
+    lcd.fillScreen(BG);
+
+    drawFeatureHeader("CLOCK");
+
+    // Large time
+    lcd.setFont(&fonts::Font6);
+    lcd.setTextDatum(middle_center);
+    lcd.setTextColor(TEXT, BG);
+    lcd.drawString(getTimeString(), 120, 120);
+
+    // Day
+    lcd.setFont(&fonts::Font4);
+    lcd.setTextDatum(middle_center);
+    lcd.setTextColor(ACCENT, BG);
+    lcd.drawString(getDayName(), 120, 175);
+
+    // Date
+    lcd.setFont(&fonts::Font2);
+    lcd.setTextDatum(middle_center);
+    lcd.setTextColor(SUBTEXT, BG);
+    lcd.drawString(getDateString(), 120, 205);
+
+    drawBottomHint("HOME  BACK");
+}
+// ============================================================
+void updateClockDisplay()
+{
+    static char lastTime[10] = "";
+
+    const char* currentTime = getTimeString();
+
+    // Only redraw when the time actually changes
+    if (strcmp(lastTime, currentTime) == 0)
+        return;
+
+    strcpy(lastTime, currentTime);
+
+    // Clear only the old time area
+    lcd.fillRect(55, 75, 130, 80, BG);
+
+    lcd.setFont(&fonts::Font6);
+    lcd.setTextDatum(middle_center);
+    lcd.setTextColor(TEXT, BG);
+    lcd.drawString(currentTime, 120, 120);
+}
+
+//============================================================
+// ALARM
+// ============================================================
+void drawAlarm()
+{
+    drawFeatureHeader("ALARM");
+
+    for (int i = 0; i < 3; i++)
+    {
+        int y = 75 + (i * 55);
+
+        char alarmText[10];
+
+        sprintf(
+            alarmText,
+            "%02d:%02d",
+            getAlarmHour(i),
+            getAlarmMinute(i)
         );
+
+        bool selected = (i == selectedAlarm);
+
+        // Selection background
+        if (selected)
+        {
+            lcd.fillRoundRect(
+                MARGIN,
+                y - 18,
+                208,
+                40,
+                8,
+                SELECTED
+            );
+
+            lcd.fillRoundRect(
+                MARGIN + 8,
+                y - 8,
+                4,
+                16,
+                2,
+                ACCENT
+            );
+        }
+
+        // Alarm time
+        lcd.setFont(&fonts::Font4);
+        lcd.setTextSize(1);
+        lcd.setTextDatum(middle_left);
+
+        lcd.setTextColor(
+            selected ? TEXT : SUBTEXT,
+            selected ? SELECTED : BG
+        );
+
+        lcd.drawString(
+            alarmText,
+            MARGIN + 20,
+            y
+        );
+
+        // ON / OFF
+        lcd.setFont(&fonts::Font2);
+        lcd.setTextDatum(middle_right);
+
+        lcd.setTextColor(
+            isAlarmEnabled(i) ? ACCENT : SUBTEXT,
+            selected ? SELECTED : BG
+        );
+
+        lcd.drawString(
+            isAlarmEnabled(i) ? "ON" : "OFF",
+            210,
+            y
+        );
+    }
+
+    drawBottomHint(" <  SELECT   OK");
+}
+
+void drawAlarmRinging()
+{
+    lcd.fillScreen(BG);
+
+    lcd.setFont(&fonts::Font4);
+    lcd.setTextDatum(middle_center);
+    lcd.setTextColor(TEXT, BG);
+    lcd.drawString("ALARM", 120, 65);
+
+    lcd.setFont(&fonts::Font6);
+    lcd.setTextColor(ACCENT, BG);
+
+    // Find which alarm is ringing
+    int ringingIndex = -1;
+
+    for (int i = 0; i < 3; i++)
+    {
+        if (isAlarmTriggered(i))
+        {
+            ringingIndex = i;
+            break;
+        }
+    }
+
+    char alarmTime[10];
+
+    if (ringingIndex >= 0)
+    {
+        sprintf(
+            alarmTime,
+            "%02d:%02d",
+            getAlarmHour(ringingIndex),
+            getAlarmMinute(ringingIndex)
+        );
+    }
     else
-        lcd.fillCircle(
-            205,
-            y + 15,
-            6,
-            SUBTEXT_COLOR
-        );
+    {
+        sprintf(alarmTime, "--:--");
+    }
+
+    lcd.drawString(alarmTime, 120, 130);
+
+    lcd.setFont(&fonts::Font4);
+    lcd.setTextColor(WARNING, BG);
+    lcd.drawString("RINGING", 120, 190);
+
+    lcd.setFont(&fonts::Font2);
+    lcd.setTextColor(SUBTEXT, BG);
+    lcd.drawString("OK  STOP", 120, 270);
 }
 
 
-// ======================================================
-// SYSTEM
-// ======================================================
+// ============================================================
+// ALARM ROW
+// ============================================================
 
+
+// ============================================================
+// SYSTEM
+// ============================================================
+// ============================================================
+// SYSTEM
+// ============================================================
 void drawSystem()
 {
-    drawFeatureHeader("System");
+    drawFeatureHeader("SYSTEM");
 
-    drawSystemRow(
+    // Wi-Fi status
+    lcd.setFont(&fonts::Font2);
+    lcd.setTextDatum(middle_left);
+    lcd.setTextColor(TEXT, BG);
+
+    lcd.drawString(
         "Wi-Fi",
-        "Not connected",
-        80,
-        SUBTEXT_COLOR
+        MARGIN,
+        75
     );
 
-    drawSystemRow(
-        "Server",
-        "Offline",
-        115,
-        SUBTEXT_COLOR
-    );
+    // Wi-Fi status indicator
+    uint16_t wifiColor = wifiConnected() ? GREEN : WARNING;
 
+    lcd.fillCircle(208, 75, 3, wifiColor);
+    lcd.drawCircle(208, 75, 7, wifiColor);
+    lcd.drawCircle(208, 75, 11, wifiColor);
+
+    // Battery
     drawSystemRow(
         "Battery",
-        "USB power",
-        150,
-        TEXT_COLOR
+        "USB",
+        120,
+        GREEN
     );
 
+    // Storage
     drawSystemRow(
         "Storage",
-        "Local",
-        185,
-        TEXT_COLOR
+        "OK",
+        165,
+        GREEN
     );
 
-    drawSystemRow(
-        "Firmware",
-        "v0.1.0",
-        220,
-        TEXT_COLOR
-    );
+    // Server IP
+    char ipText[20];
 
+    if (wifiConnected())
+    {
+        String ip = WiFi.localIP().toString();
+        ip.toCharArray(ipText, sizeof(ipText));
+
+        drawSystemRow(
+            "Server",
+            ipText,
+            210,
+            ACCENT
+        );
+    }
+    else
+    {
+        drawSystemRow(
+            "Server",
+            "OFFLINE",
+            210,
+            WARNING
+        );
+    }
+
+    // Device
     drawSystemRow(
         "Device",
-        "XIAO ESP32-S3",
-        255,
-        TEXT_COLOR
+        "ESP32-S3",
+        245,
+        SUBTEXT
     );
 
-    drawBottomHint("System settings");
-}
-
-
-// ======================================================
+    drawBottomHint("HOME  BACK");
+}// ============================================================
 // SYSTEM ROW
-// ======================================================
+// ============================================================
 
 void drawSystemRow(
     const char* left,
@@ -1011,100 +1685,447 @@ void drawSystemRow(
     uint16_t rightColor
 )
 {
-    lcd.setTextDatum(top_left);
+    lcd.setTextDatum(middle_left);
 
-    lcd.setTextColor(SUBTEXT_COLOR);
+    lcd.setTextColor(
+        TEXT,
+        BG
+    );
+
     lcd.setTextSize(1);
 
     lcd.drawString(
         left,
-        18,
+        MARGIN,
         y
     );
 
-    lcd.setTextColor(rightColor);
+    lcd.setTextDatum(middle_right);
+
+    lcd.setTextColor(
+        rightColor,
+        BG
+    );
 
     lcd.drawString(
         right,
-        120,
+        224,
         y
     );
+}
 
-    lcd.drawLine(
-        18,
-        y + 25,
-        222,
-        y + 25,
-        LINE_COLOR
-    );
+// ============================================================
+// OPEN FEATURE
+// ============================================================
+
+void openSelectedFeature()
+{
+    switch (selectedMenu)
+    {
+       case 0:
+
+    // Reload latest Todo data from storage
+    for (int i = 0; i < 3; i++)
+    {
+        todoCompleted[i] = loadTodoState(i);
+
+        loadTodoName(
+            i,
+            todoNames[i],
+            sizeof(todoNames[i])
+        );
+    }
+
+    currentScreen = SCREEN_TODO;
+    break;
+
+        case 1:
+            currentScreen = SCREEN_FOCUS;
+            break;
+
+        case 2:
+
+    // Reload latest Habit data from storage
+    for (int i = 0; i < 3; i++)
+    {
+        habitCompleted[i] = loadHabitState(i);
+
+        loadHabitName(
+            i,
+            habitNames[i],
+            sizeof(habitNames[i])
+        );
+    }
+
+    currentScreen = SCREEN_HABITS;
+    break;
+
+        case 3:
+            currentScreen = SCREEN_PROGRESS;
+            break;
+
+        case 4:
+            currentScreen = SCREEN_CLOCK;
+            break;
+
+        case 5:
+            currentScreen = SCREEN_ALARM;
+            break;
+
+        case 6:
+            currentScreen = SCREEN_SYSTEM;
+            break;
+    }
+
+    drawCurrentScreen();
 }
 
 
-// ======================================================
-// FEATURE HEADER
-// ======================================================
-
-void drawFeatureHeader(const char* title)
+// ============================================================
+// TODO INPUT
+// ============================================================
+void handleClockInput(ButtonEvent event)
 {
-    lcd.fillScreen(BG_COLOR);
+    if (event == BTN_HOME_PRESSED)
+    {
+        currentScreen = SCREEN_MENU;
+        drawCurrentScreen();
+    }
+}
 
-    lcd.setTextDatum(top_left);
+void uiUpdate()
+{
 
-    lcd.setTextColor(SUBTEXT_COLOR);
+    if (isAlarmRinging() &&
+        currentScreen != SCREEN_ALARM_RINGING)
+    {
+        currentScreen = SCREEN_ALARM_RINGING;
+        drawCurrentScreen();
+    }
+    static int lastMinute = -1;
+
+    if (currentScreen == SCREEN_FOCUS && focusRunning)
+    {
+        updateFocusDisplay();
+    }
+
+    if (currentScreen == SCREEN_HOME)
+    {
+        time_t now = time(nullptr);
+        struct tm* timeinfo = localtime(&now);
+
+        if (timeinfo != nullptr && timeinfo->tm_min != lastMinute)
+        {
+            lastMinute = timeinfo->tm_min;
+            drawCurrentScreen();
+        }
+    }
+static unsigned long lastClockUpdate = 0;
+
+if (currentScreen == SCREEN_CLOCK)
+{
+    if (millis() - lastClockUpdate >= 1000)
+    {
+        lastClockUpdate = millis();
+
+        clockUpdate();
+        updateClockDisplay();
+    }
+}
+}
+void updateFocusDisplay()
+{
+    unsigned long elapsed = focusPausedTime;
+
+    if (focusRunning)
+    {
+        elapsed = millis() - focusStartTime;
+    }
+
+    if (elapsed > FOCUS_DURATION)
+        elapsed = FOCUS_DURATION;
+
+    unsigned long remaining = FOCUS_DURATION - elapsed;
+
+    int minutes = remaining / 60000;
+    int seconds = (remaining % 60000) / 1000;
+
+    // -------------------------
+    // TIMER
+    // -------------------------
+
+    char timerText[10];
+
+    sprintf(
+        timerText,
+        "%02d:%02d",
+        minutes,
+        seconds
+    );
+
+    // Clear ONLY timer area
+   lcd.fillRect(
+    10,
+    55,
+    220,
+    80,
+    BG
+);
+
+    lcd.setFont(&fonts::Font6);
     lcd.setTextSize(1);
-
-    lcd.drawString(
-        "10:42",
-        18,
-        10
-    );
-
-    lcd.drawString(
-        "Wi-Fi",
-        178,
-        10
-    );
-
-    lcd.fillCircle(
-        218,
-        14,
-        3,
-        ACCENT_COLOR
-    );
-
-    lcd.setTextColor(TEXT_COLOR);
-    lcd.setTextSize(3);
-
-    lcd.drawString(
-        title,
-        18,
-        38
-    );
-
-    lcd.drawLine(
-        15,
-        72,
-        225,
-        72,
-        LINE_COLOR
-    );
-}
-
-
-// ======================================================
-// BOTTOM HINT
-// ======================================================
-
-void drawBottomHint(const char* text)
-{
     lcd.setTextDatum(middle_center);
-
-    lcd.setTextColor(SUBTEXT_COLOR);
-    lcd.setTextSize(1);
+    lcd.setTextColor(TEXT, BG);
 
     lcd.drawString(
-        text,
+        timerText,
         120,
-        295
+        110
     );
+
+    // -------------------------
+    // PROGRESS BAR
+    // -------------------------
+
+    int progressWidth =
+        (168UL * elapsed) / FOCUS_DURATION;
+
+    lcd.fillRoundRect(
+        36,
+        195,
+        168,
+        6,
+        3,
+        DARK_BAR
+    );
+
+    if (progressWidth > 0)
+    {
+        lcd.fillRoundRect(
+            36,
+            195,
+            progressWidth,
+            6,
+            3,
+            ACCENT
+        );
+    }
+
+    // -------------------------
+    // SESSION TIME
+    // -------------------------
+
+    char sessionText[20];
+
+    sprintf(
+        sessionText,
+        "%lu:%02lu / 25:00",
+        elapsed / 60000,
+        (elapsed % 60000) / 1000
+    );
+
+    lcd.fillRect(
+        55,
+        210,
+        130,
+        25,
+        BG
+    );
+
+    lcd.setFont(&fonts::Font4);
+    lcd.setTextDatum(middle_center);
+    lcd.setTextColor(SUBTEXT, BG);
+
+    lcd.drawString(
+        sessionText,
+        120,
+        225
+    );
+}
+
+
+void handleProgressInput(ButtonEvent event)
+{
+    if (event == BTN_HOME_PRESSED)
+    {
+        currentScreen = SCREEN_MENU;
+        drawCurrentScreen();
+    }
+}
+
+// ============================================================
+// ALARM INPUT
+// ============================================================
+
+
+// ============================================================
+// ALARM INPUT
+// ============================================================
+
+void handleAlarmInput(ButtonEvent event)
+{
+    // --------------------------------------------------------
+    // SELECT ALARM
+    // --------------------------------------------------------
+
+    if (alarmEditField == ALARM_SELECT)
+    {
+        if (event == BTN_LEFT_PRESSED)
+        {
+            selectedAlarm--;
+
+            if (selectedAlarm < 0)
+                selectedAlarm = 2;
+
+            drawCurrentScreen();
+        }
+
+        else if (event == BTN_RIGHT_PRESSED)
+        {
+            selectedAlarm++;
+
+            if (selectedAlarm > 2)
+                selectedAlarm = 0;
+
+            drawCurrentScreen();
+        }
+
+        else if (event == BTN_OK_PRESSED)
+        {
+            alarmEditField = ALARM_HOUR;
+            drawCurrentScreen();
+        }
+
+        else if (event == BTN_HOME_PRESSED)
+        {
+            currentScreen = SCREEN_MENU;
+            drawCurrentScreen();
+        }
+    }
+
+    // --------------------------------------------------------
+    // EDIT HOUR
+    // --------------------------------------------------------
+
+    else if (alarmEditField == ALARM_HOUR)
+    {
+        if (event == BTN_LEFT_PRESSED)
+        {
+            int hour = getAlarmHour(selectedAlarm);
+
+            hour--;
+
+            if (hour < 0)
+                hour = 23;
+
+            setAlarmHour(selectedAlarm, hour);
+
+            drawCurrentScreen();
+        }
+
+        else if (event == BTN_RIGHT_PRESSED)
+        {
+            int hour = getAlarmHour(selectedAlarm);
+
+            hour++;
+
+            if (hour > 23)
+                hour = 0;
+
+            setAlarmHour(selectedAlarm, hour);
+
+            drawCurrentScreen();
+        }
+
+        else if (event == BTN_OK_PRESSED)
+        {
+            alarmEditField = ALARM_MINUTE;
+            drawCurrentScreen();
+        }
+
+        else if (event == BTN_HOME_PRESSED)
+        {
+            alarmEditField = ALARM_SELECT;
+            drawCurrentScreen();
+        }
+    }
+
+    // --------------------------------------------------------
+    // EDIT MINUTE
+    // --------------------------------------------------------
+
+    else if (alarmEditField == ALARM_MINUTE)
+    {
+        if (event == BTN_LEFT_PRESSED)
+        {
+            int minute = getAlarmMinute(selectedAlarm);
+
+            minute--;
+
+            if (minute < 0)
+                minute = 59;
+
+            setAlarmMinute(selectedAlarm, minute);
+
+            drawCurrentScreen();
+        }
+
+        else if (event == BTN_RIGHT_PRESSED)
+        {
+            int minute = getAlarmMinute(selectedAlarm);
+
+            minute++;
+
+            if (minute > 59)
+                minute = 0;
+
+            setAlarmMinute(selectedAlarm, minute);
+
+            drawCurrentScreen();
+        }
+
+        else if (event == BTN_OK_PRESSED)
+        {
+            alarmEditField = ALARM_ENABLED;
+            drawCurrentScreen();
+        }
+
+        else if (event == BTN_HOME_PRESSED)
+        {
+            alarmEditField = ALARM_SELECT;
+            drawCurrentScreen();
+        }
+    }
+
+    // --------------------------------------------------------
+    // ENABLE / DISABLE
+    // --------------------------------------------------------
+
+    else if (alarmEditField == ALARM_ENABLED)
+    {
+        if (event == BTN_LEFT_PRESSED ||
+            event == BTN_RIGHT_PRESSED)
+        {
+            bool enabled = isAlarmEnabled(selectedAlarm);
+
+            setAlarmEnabled(
+                selectedAlarm,
+                !enabled
+            );
+
+            drawCurrentScreen();
+        }
+
+        else if (event == BTN_OK_PRESSED)
+        {
+            alarmEditField = ALARM_SELECT;
+            drawCurrentScreen();
+        }
+
+        else if (event == BTN_HOME_PRESSED)
+        {
+            alarmEditField = ALARM_SELECT;
+            drawCurrentScreen();
+        }
+    }
 }
